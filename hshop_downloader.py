@@ -10,13 +10,26 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+import logging
+import sys
+
+# Set up logging
+logging.basicConfig(filename='log.txt', level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Redirect stdout and stderr to the log file
+sys.stdout = open('log.txt', 'a')
+sys.stderr = open('log.txt', 'a')
 
 baseurl = "https://hshop.erista.me"
 
 # Set up Selenium
 options = Options()
-options.headless = True
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+options.add_argument("--headless")
+options.add_argument("--log-level=3")
+options.add_experimental_option('excludeSwitches', ['enable-logging'])
+service = Service(ChromeDriverManager().install())
+driver = webdriver.Chrome(service=service, options=options)
 
 def get_main_categories():
     driver.get(baseurl)
@@ -202,5 +215,13 @@ def html_decode(filename):
     return filename
 
 if __name__ == "__main__":
+    # Restore stdout and stderr for your program's output
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
+    
     get_games()
     driver.quit()
+
+    # Close the log file
+    sys.stdout.close()
+    sys.stderr.close()
