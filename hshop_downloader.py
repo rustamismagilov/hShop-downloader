@@ -20,7 +20,7 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), opti
 
 def get_main_categories():
     driver.get(baseurl)
-    time.sleep(10)  # Wait for the page to fully load
+    time.sleep(1)  # Wait for the page to fully load
     soup = BeautifulSoup(driver.page_source, "html.parser")
     categories = soup.find_all("a", href=re.compile(r'^/c/'))
     return categories
@@ -62,7 +62,7 @@ def get_games():
 
 def download_games_in_category(category_url):
     driver.get(category_url)
-    time.sleep(10)  # Wait for the page to fully load
+    time.sleep(1)  # Wait for the page to fully load
     soupRegion = BeautifulSoup(driver.page_source, "html.parser")
     region = soupRegion.find("div", class_="list pre-top")
     regex = re.findall(r'href="([^"]+)', str(region))
@@ -102,7 +102,7 @@ def download_games_in_category(category_url):
         while True:
             url = baseurl + selected_sub_category + f"?count=100&offset={offset}"
             driver.get(url)
-            time.sleep(10)  # Wait for the page to fully load
+            time.sleep(1)  # Wait for the page to fully load
             soupOffset = BeautifulSoup(driver.page_source, "html.parser")
             content = soupOffset.find("div", class_="list pre-top")
             game_list = re.findall(r'href="([^"]+)', str(content))
