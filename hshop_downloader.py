@@ -1,94 +1,87 @@
-import requests
-from bs4 import BeautifulSoup
-import re
-from tqdm import tqdm
 import os
+import re
+import requests
 import urllib.parse
-import time
-import random
+from tqdm import tqdm
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
-import logging
-import sys
+from bs4 import BeautifulSoup
 
-# Set up logging
-logging.basicConfig(filename='log.txt', level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Redirect stdout and stderr to the log file
-sys.stdout = open('log.txt', 'a')
-sys.stderr = open('log.txt', 'a')
-
+# Base URL of the website to scrape
 baseurl = "https://hshop.erista.me"
 
-# Set up Selenium
-options = Options()
-options.add_argument("--headless")
-options.add_argument("--log-level=3")
-options.add_experimental_option('excludeSwitches', ['enable-logging'])
-service = Service(ChromeDriverManager().install())
-driver = webdriver.Chrome(service=service, options=options)
+# Function to configure Selenium Chrome options for headless browsing
+def get_chrome_options():
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--headless")  # Run in headless mode
+    chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
+    chrome_options.add_argument("--window-size=1920,1200")  # Set window size
+    chrome_options.add_argument("--ignore-certificate-errors")  # Ignore SSL errors
+    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model
+    chrome_options.add_argument("--disable-dev-shm-usage")  # Disable shared memory
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Hide automation
+    chrome_options.add_argument("--disable-extensions")  # Disable extensions
+    return chrome_options
 
-def get_main_categories():
+# Function to get the main categories from the homepage
+def get_main_categories(driver):
     driver.get(baseurl)
-    time.sleep(1)  # Wait for the page to fully load
     soup = BeautifulSoup(driver.page_source, "html.parser")
-    categories = soup.find_all("a", href=re.compile(r'^/c/'))
+    categories = soup.find_all("a", href=re.compile(r'^/c/'))  # Find category links
     return categories
 
-def get_headers():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/57.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.11; rv:46.0) Gecko/20100101 Firefox/46.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/601.3.9 (KHTML, like Gecko) Version/9.0.2 Safari/601.3.9",
-    ]
-    return {
-        'User-Agent': random.choice(user_agents),
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': baseurl
-    }
+# Function to sanitize file names by removing invalid characters
+def sanitize_filename(filename):
+    return re.sub(r'[<>:\"/\\|?*\x00-\x1F]', '', filename)
 
+# Function to manage the game download process
 def get_games():
-    categories = get_main_categories()
-    print("Select main categories (comma separated, '*' for all):")
-    for i, category in enumerate(categories, start=1):
-        print(f"{i}. {category.text.strip()}")
-    selections = input("Enter your selections: ")
+    options = get_chrome_options()
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
 
-    if selections.strip() == '*':
-        selected_categories = categories
-    else:
-        selected_categories = []
-        for selection in selections.split(','):
-            selection = selection.strip()
-            if not selection.isdigit() or int(selection) not in range(1, len(categories) + 1):
-                print(f"Invalid selection '{selection}', please try again. Example: 1,2,3")
-                return
-            selected_categories.append(categories[int(selection) - 1])
+    try:
+        categories = get_main_categories(driver)
+        print("Select main categories (comma separated, '*' for all):")
+        for i, category in enumerate(categories, start=1):
+            print(f"{i}. {category.text.strip()}")
+        selections = input("Enter your selections: ")
 
-    for selected_category in selected_categories:
-        category_url = baseurl + selected_category['href']
-        download_games_in_category(category_url)
+        if selections.strip() == '*':
+            selected_categories = categories  # Select all categories
+        else:
+            selected_categories = []
+            for selection in selections.split(','):
+                selection = selection.strip()
+                if not selection.isdigit() or int(selection) not in range(1, len(categories) + 1):
+                    print(f"Invalid selection '{selection}', please try again. Example: 1,2,3")
+                    return
+                selected_categories.append(categories[int(selection) - 1])
 
-def download_games_in_category(category_url):
+        for selected_category in selected_categories:
+            category_url = baseurl + selected_category['href']
+            download_games_in_category(driver, category_url)  # Download games in selected categories
+
+    finally:
+        driver.quit()  # Ensure the browser is closed after execution
+
+# Function to download games from a specific category
+def download_games_in_category(driver, category_url):
     driver.get(category_url)
-    time.sleep(1)  # Wait for the page to fully load
     soupRegion = BeautifulSoup(driver.page_source, "html.parser")
     region = soupRegion.find("div", class_="list pre-top")
-    regex = re.findall(r'href="([^"]+)', str(region))
+    regex = re.findall(r'href="([^"]+)', str(region))  # Extract subcategory URLs
     nom = region.find_all("h3", class_="green bold")
-    region = ([i.text for i in nom])
+    region = ([i.text for i in nom])  # Extract subcategory names
 
-    # Retrieve the list of subcategories for the selected main category
     sub_categories = {}
     for i, j in zip(regex, region):
         if "/s/" in i:
-            sub_categories[j] = i
+            sub_categories[j] = i  # Map subcategory names to URLs
 
-    # Display a menu to select subcategories
     print(f"Select subcategories for {category_url.replace(baseurl + '/c/', '')} (comma separated, '*' for all):")
     sub_category_list = list(sub_categories.items())
     for i, (name, url) in enumerate(sub_category_list, start=1):
@@ -96,7 +89,7 @@ def download_games_in_category(category_url):
     selections = input("Enter your selections: ")
 
     if selections.strip() == '*':
-        selected_sub_categories = sub_category_list
+        selected_sub_categories = sub_category_list  # Select all subcategories
     else:
         selected_sub_categories = []
         for selection in selections.split(','):
@@ -108,103 +101,92 @@ def download_games_in_category(category_url):
             selected_sub_categories.append((selected_sub_category_name, selected_sub_category))
 
     for selected_sub_category_name, selected_sub_category in selected_sub_categories:
-        download_path = f"./downloads/{category_url.replace(baseurl + '/c/', '')}/{selected_sub_category_name}"
-        os.makedirs(download_path, exist_ok=True)
+        download_path = f"./downloads/{category_url.replace(baseurl + '/c/', '')}/{sanitize_filename(selected_sub_category_name)}"
+        os.makedirs(download_path, exist_ok=True)  # Create directory for downloads
 
         offset = 0
         while True:
             url = baseurl + selected_sub_category + f"?count=100&offset={offset}"
             driver.get(url)
-            time.sleep(1)  # Wait for the page to fully load
             soupOffset = BeautifulSoup(driver.page_source, "html.parser")
             content = soupOffset.find("div", class_="list pre-top")
-            game_list = re.findall(r'href="([^"]+)', str(content))
+            game_list = re.findall(r'href="([^"]+)', str(content))  # Extract game URLs
 
             if not game_list:
-                break
+                break  # Exit loop if no games are found
 
-            download(game_list, download_path)
+            download(driver, game_list, download_path)  # Download games
 
             if len(game_list) < 100:
-                break
+                break  # Exit loop if fewer than 100 games are found
 
-            offset += 100
+            offset += 100  # Increase offset for next batch of games
 
-            time.sleep(random.uniform(1, 3))
-
-def download(urls, download_path):
+# Function to download a list of games
+def download(driver, urls, download_path):
     for url in urls:
-        download_game(baseurl + url, download_path)
+        download_game(driver, baseurl + url, download_path)
 
-def download_game(url, download_path):
+# Function to download a single game and save it to disk
+def download_game(driver, url, download_path):
     try:
-        headers = get_headers()
         driver.get(url)
-        time.sleep(10)  # Wait for the page to fully load
-        game_page = BeautifulSoup(driver.page_source, "html.parser")
-        
-        # Check for Direct Download button
-        download_link = game_page.find("a", class_="btn btn-c3", string="Direct Download")
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "btn.btn-c3"))
+        )
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        download_link = soup.find('a', class_='btn btn-c3')  # Find download link
         if download_link:
             download_url = download_link['href']
-        else:
-            # Check for download link pattern
-            download_url = game_page.find("a", href=re.compile(r'https://download\d+\.erista\.me/content/\d+\?token=\w+'))
-            if download_url:
-                download_url = download_url['href']
-
-        if download_url:
-            response = requests.get(download_url, headers=headers, stream=True)
+            response = requests.get(download_url, stream=True)
             
-            # Extract the ID from the game URL
-            game_id = url.split('/')[-1]
-            content_disposition = response.headers.get('content-disposition', '')
-            filename = re.findall('filename="(.+)"', content_disposition)
-            if filename:
-                filename = urllib.parse.unquote(filename[0])
-                filename = re.sub(r'[<>:\"/\\\|\?\*]', '', filename)
-                filename = filename.replace('%20', ' ')
-                filename = html_decode(filename)
-                
-                filename_parts = filename.rsplit('.', 1)
-                filename = f"{filename_parts[0]}_[hID-{game_id}].{filename_parts[1]}"
-                
-                extension = filename.split('.')[-1]
-                tempfilename = filename.replace(f'.{extension}', f'.{extension}.part')
-                
-                full_temp_path = os.path.join(download_path, tempfilename)
-                full_final_path = os.path.join(download_path, filename)
-                
-                total_length = int(response.headers.get('content-length', 0))
-                
-                if os.path.exists(full_final_path) and os.path.getsize(full_final_path) == total_length:
-                    print(f"{filename} already downloaded and matches the expected size.")
-                    return
-                
-                with open(full_temp_path, 'wb') as f, tqdm(
-                    total=total_length,
-                    unit='B',
-                    unit_scale=True,
-                    unit_divisor=1024,
-                    desc=f"{filename} ({total_length/1024/1024:.2f} MB)"
-                ) as bar:
-                    for data in response.iter_content(chunk_size=4096):
-                        f.write(data)
-                        bar.update(len(data))
-
-                os.rename(full_temp_path, full_final_path)
-                print(f"Downloaded: {filename}")
+            game_id = url.split('/')[-1]  # Extract game ID
+            
+            content_disposition = response.headers.get('content-disposition')
+            if content_disposition and 'filename=' in content_disposition:
+                filename = content_disposition.split('filename=')[1].split(';')[0].strip('\"')
             else:
-                print("Filename could not be determined.")
+                filename = f"{game_id}.bin"  # Default filename if not provided
+            
+            filename = sanitize_filename(filename)
+            filename = html_decode(filename)  # Decode special characters
+            
+            # Append hID to the filename
+            filename_parts = filename.rsplit('.', 1)
+            filename = f"{filename_parts[0]}.[hID-{game_id}].{filename_parts[1]}"
+            
+            full_final_path = os.path.join(download_path, filename)
+            tempfilename = f"{filename}.part"
+            full_temp_path = os.path.join(download_path, tempfilename)
+            
+            total_length = int(response.headers.get('content-length', 0))
+            
+            if os.path.exists(full_final_path) and os.path.getsize(full_final_path) == total_length:
+                print(f"{filename} already downloaded and matches the expected size.")
+                return  # Skip download if the file already exists and is complete
+            
+            with open(full_temp_path, 'wb') as f, tqdm(
+                total=total_length,
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+                desc=f"{filename} ({total_length/1024/1024:.2f} MB)"
+            ) as bar:
+                for data in response.iter_content(chunk_size=4096):
+                    f.write(data)
+                    bar.update(len(data))  # Update progress bar
+
+            os.rename(full_temp_path, full_final_path)  # Rename temp file to final file
         else:
-            print("No valid download link found.")
+            print("Direct download link not found for", url)
+
     except requests.exceptions.RequestException as e:
         print("An error occurred while downloading the game:", e)
     except Exception as e:
         print("An unexpected error occurred:", e)
 
+# Function to decode special HTML characters in filenames
 def html_decode(filename):
-    # Insert your HTML decoding logic here
     filename = filename.replace('%3A', ':')
     filename = filename.replace('%2F', '/')
     filename = filename.replace('%2C', ',')
@@ -214,14 +196,10 @@ def html_decode(filename):
     filename = filename.replace("'", '')
     return filename
 
+# Main entry point of the script
 if __name__ == "__main__":
-    # Restore stdout and stderr for your program's output
-    sys.stdout = sys.__stdout__
-    sys.stderr = sys.__stderr__
-    
-    get_games()
-    driver.quit()
-
-    # Close the log file
-    sys.stdout.close()
-    sys.stderr.close()
+    try:
+        get_games()
+    except KeyboardInterrupt:
+        print("\nDownload interrupted by user. Exiting...")
+        exit(0)
